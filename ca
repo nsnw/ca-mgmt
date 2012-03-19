@@ -1,0 +1,135 @@
+#!/bin/bash
+
+NAME="ca-mgmt"
+VERSION="0.1"
+HEADER="${NAME} ${VERSION} (c) 2012 Andy Smith / northstar networks"
+LOG=0
+DEBUG=0
+NOTICE=1
+CERT_TYPES="site user"
+CA_DIRS="key crt csr"
+CA_FILES="certindex.txt serial"
+OPENSSL="/usr/bin/openssl"
+DIR_BASE="/home/andys/ca"
+CONFIG="${DIR_BASE}/root-ca/openssl.cnf"
+source ./funcs.sh
+
+function help {
+  echo ${HEADER}
+  echo "Manage SSL CA for users and sites."
+  echo ""
+  echo "COMMANDS"
+  echo -e "\t-c <cn>\t\tCreate certificate signing request for <cn>"
+  echo -e "\t-s <cn>\t\tSign certificate request for <cn>"
+  echo ""
+  echo "OPTIONS"
+  echo -e "\t-t <type>\tCertificate type (site, user) [MANDATORY]"
+  echo ""
+  echo -e "\t-d\t\tTurn on debugging"
+}
+
+if [ -z "$*" ]; then
+  help
+  exit 1
+fi
+
+
+function call_openssl {
+  if [ ! -z "$1" ]; then
+    OPTIONS="$1"
+    debug ${FUNCNAME} "openssl: called with ${FCCYN}${OPTIONS}${CLR}."
+    debug ${FUNCNAME} "openssl: ${OPENSSL} ${OPTIONS} -config ${CONFIG}"
+    ${OPENSSL} ${OPTIONS} -config ${CONFIG}
+    ERR=$?
+
+    return ${ERR}
+  fi
+}
+
+CERT_TYPE=""
+CMD_TYPE=""
+COMMON_NAME=""
+while getopts "t:c:s:r:d" opt; do
+  case ${opt} in
+    d)
+      DEBUG=1
+      ;;
+    t)
+      debug ${FUNCNAME} "Option ${FCGRN}-t${CLR} specified (certificate type)."
+      if [ -z "${OPTARG}" ]; then
+        error "Missing certificate type."
+        exit 1
+      fi
+      CERT_TYPE=${OPTARG}
+      if [ ${CERT_TYPE} != "site" ] && [ ${CERT_TYPE} != "user" ]; then
+        error "Certificate must be of type ${FCYLW}user${CLR} or ${FCYLW}site${CLR}."
+        exit 1
+      else
+        debug ${FUNCNAME} "Certificate type is ${FCGRN}${CERT_TYPE}${CLR}."
+      fi
+      ;;
+    c)
+      debug ${FUNCNAME} "Doing certificate signing request."
+      if [ -z "${OPTARG}" ]; then
+        error "No common name given."
+        exit 1
+      else
+        debug "Common name is ${FCCYN}${OPTARG}${CLR}."
+        COMMON_NAME=${OPTARG}
+        CMD_TYPE="request"
+      fi
+      ;;
+    s)
+      debug ${FUNCNAME} "Doing certificate signing."
+      if [ -z "${OPTARG}" ]; then
+        error "No common name given."
+        exit 1
+      else
+        debug "Common name is ${FCCYN}${OPTARG}${CLR}."
+        COMMON_NAME=${OPTARG}
+        CMD_TYPE="sign"
+      fi
+      ;;
+    *)
+      error "Unknown command."
+      exit 1
+      ;;
+  esac
+done
+
+# Check for directories
+for CRT_TYPE in ${CERT_TYPES}; do
+  debug "Checking ${FCCYN}${CRT_TYPE}${CLR} directories..."
+  for CA_DIR in ${CA_DIRS}; do
+    if [ ! -d ${DIR_BASE}/${CRT_TYPE}-ca/${CA_DIR} ]; then
+      error "Missing directory ${FCCYN}${DIR_BASE}/${CRT_TYPE}-ca/${CA_DIR}${CLR}"
+      exit 255
+    else
+      debug "${FCCYN}${DIR_BASE}/${CRT_TYPE}-ca/${CA_DIR}${CLR} exists."
+    fi
+  done
+done
+
+case ${CMD_TYPE} in
+  request)
+    debug "Changing directory to ${FCCYN}${DIR_BASE}/${CERT_TYPE}-ca${CLR}..."
+    cd ${DIR_BASE}/${CERT_TYPE}-ca
+    notice "Generating certificate signing request for ${FCYLW}${COMMON_NAME}${CLR}..."
+    call_openssl "req -newkey rsa:4096 -keyout key/${COMMON_NAME}.key -out csr/${COMMON_NAME}.csr -days 365 -nodes"
+    RC=$?
+    if [ ${RC} -ne 0 ]; then
+      error "Error creating certificate signing request for ${FCYLW}${COMMON_NAME}${CLR}: Error code ${FCCYN}${RC}${CLR}."
+      exit ${RC}
+    else
+      notice "Certificate signing request for ${FCYLW}${COMMON_NAME}${CLR} successful."
+      notice "CSR is ${FCCYN}${DIR_BASE}/${CERT_TYPE}-ca/csr/${COMMON_NAME}.csr${CLR}."
+      notice "Key is ${FCCYN}${DIR_BASE}/${CERT_TYPE}-ca/key/${COMMON_NAME}.key${CLR}."
+      ls -la ${DIR_BASE}/${CERT_TYPE}-ca/csr/${COMMON_NAME}.csr
+      ls -la ${DIR_BASE}/${CERT_TYPE}-ca/key/${COMMON_NAME}.key
+    fi
+    ;;
+  sign)
+    cd ${DIR_BASE}/${CERT_TYPE}-ca
+    call_openssl "ca -days 365 -keyfile key/ca.key -cert crt/ca.crt -in csr/${COMMON_NAME}.csr -out crt/${COMMON_NAME}.crt"
+    ;;
+esac
