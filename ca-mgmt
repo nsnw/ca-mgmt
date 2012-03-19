@@ -1,0 +1,353 @@
+#!/bin/bash
+
+#-------------------------------------------------------------------------------
+# ca-mgmt
+# (c) 2012 Andy Smith / northstar networks
+# Manage CAs
+#-------------------------------------------------------------------------------
+# Based on the guide by Kees Leune at http://www.leune.org/blog/kees/pages/ca.html
+#-------------------------------------------------------------------------------
+
+NAME="ca-mgmt"
+VERSION="0.1"
+HEADER="${NAME} ${VERSION} (c) 2012 Andy Smith / northstar networks"
+LOG=0
+DEBUG=0
+NOTICE=1
+CERT_TYPES="site user"
+CA_DIRS="key crt csr"
+CA_FILES="certindex.txt serial"
+OPENSSL="/usr/bin/openssl"
+DIR_BASE="/home/andys/ca-mgmt"
+CONFIG="${DIR_BASE}/root-ca/openssl.cnf"
+source ./funcs.sh
+
+function help {
+  echo ${HEADER}
+  echo "Manage SSL CA for users and sites."
+  echo ""
+  echo "COMMANDS"
+  echo -e "\t-c <cn>\t\tCreate certificate signing request for <cn>"
+  echo -e "\t-s <cn>\t\tSign certificate request for <cn>"
+  echo ""
+  echo "OPTIONS"
+  echo -e "\t-t <type>\tCertificate type (site, user) [MANDATORY]"
+  echo ""
+  echo -e "\t-d\t\tTurn on debugging"
+}
+
+if [ -z "$*" ]; then
+  help
+  exit 1
+fi
+
+function call_openssl {
+  if [ ! -z "$1" ]; then
+    OPTIONS="$1"
+    debug ${FUNCNAME} "openssl: called with ${FCCYN}${OPTIONS}${CLR}."
+    debug ${FUNCNAME} "openssl: ${OPENSSL} ${OPTIONS} -config ${CONFIG}"
+    ${OPENSSL} ${OPTIONS} -config ${CONFIG}
+    ERR=$?
+
+    return ${ERR}
+  fi
+}
+
+CERT_TYPE=""
+CMD_TYPE=""
+COMMON_NAME=""
+while getopts "xit:c:s:r:d" opt; do
+  case ${opt} in
+    d)
+      DEBUG=1
+      ;;
+    t)
+      debug ${FUNCNAME} "Option ${FCGRN}-t${CLR} specified (certificate type)."
+      if [ -z "${OPTARG}" ]; then
+        error "Missing certificate type."
+        exit 1
+      fi
+      CERT_TYPE=${OPTARG}
+      if [ ${CERT_TYPE} != "site" ] && [ ${CERT_TYPE} != "user" ]; then
+        error "Certificate must be of type ${FCYLW}user${CLR} or ${FCYLW}site${CLR}."
+        exit 1
+      else
+        debug ${FUNCNAME} "Certificate type is ${FCGRN}${CERT_TYPE}${CLR}."
+      fi
+      ;;
+    c)
+      debug ${FUNCNAME} "Doing certificate signing request."
+      if [ -z "${OPTARG}" ]; then
+        error "No common name given."
+        exit 1
+      else
+        debug "Common name is ${FCCYN}${OPTARG}${CLR}."
+        COMMON_NAME=${OPTARG}
+        CMD_TYPE="request"
+      fi
+      ;;
+    s)
+      debug ${FUNCNAME} "Doing certificate signing."
+      if [ -z "${OPTARG}" ]; then
+        error "No common name given."
+        exit 1
+      else
+        debug "Common name is ${FCCYN}${OPTARG}${CLR}."
+        COMMON_NAME=${OPTARG}
+        CMD_TYPE="sign"
+      fi
+      ;;
+    i)
+      debug ${FUNCNAME} "Initialising CA."
+      CMD_TYPE="init"
+      ;;
+    x)
+      debug ${FUNCNAME} "Deleting CA."
+      CMD_TYPE="delete"
+      ;;
+    *)
+      error "Unknown command."
+      exit 1
+      ;;
+  esac
+done
+
+function init_ca {
+  debug "Initialising CA..."
+
+  check_dirs
+  RC=$?
+  if [ ${RC} -eq 0 ]; then
+    error "CA is already initialised. You can delete the CA with ${FCGRN}-x${CLR}."
+    return 1
+  elif [ ${RC} -eq 255 ]; then
+    error "Internal error checking for directories."
+    return 255
+  else
+    debug "Directories do not exist."
+  fi
+
+  if [ -d ${DIR_BASE} ]; then
+    debug "${FCCYN}${DIR_BASE} exists."
+    debug "Creating CA directories..."
+    OUTPUT=`mkdir -p ${DIR_BASE}/{root,site,user}-ca/{crt,key,csr} 2>&1`
+    RC=$?
+    if [ ${RC} -ne 0 ]; then
+      error "Error initialising CA directories: Error code ${FCCYN}${RC}${CLR} (${FCCYN}${OUTPUT}${CLR})."
+      exit 255
+    fi
+    debug "CA directories initialised."
+    debug "Creating certificate index and serial files..."
+    OUTPUT=`touch ${DIR_BASE}/{root,site,user}-ca/certindex.txt 2>&1`
+    RC=$?
+    if [ ${RC} -ne 0 ]; then
+      error "Error initialising ${FCCYN}certindex.txt${CLR}: Error code ${FCCYN}${RC}${CLR} (${FCCYN}${OUTPUT}${CLR})."
+      exit 255
+    fi
+    OUTPUT=`( for i in ${DIR_BASE}/{root,site,user}-ca/; do echo echo '100001' > $i/serial; done ) 2>&1`
+    RC=$?
+    if [ ${RC} -ne 0 ]; then
+      error "Error initialising ${FCCYN}serial${CLR}: Error code ${FCCYN}${RC}${CLR} (${FCCYN}${OUTPUT}${CLR})."
+      return 255
+    fi
+    debug "Creating ${FCCYN}openssl.cnf${CLR}..."
+    create_openssl_cnf
+    RC=$?
+    if [ ${RC} -ne 0 ]; then
+      error "Error initialising ${FCCYN}${DIR_BASE}/root-ca/openssl.cnf${CLR}: Error code ${FCCYN}${RC}${CLR}."
+      return 255
+    fi
+    debug "${FCCYN}openssl.cnf${CLR} created."
+#    debug "Generating root certificate..."
+#    call_openssl "req -new -x509 -out ${DIR_BASE}/root-ca/crt/ca.crt -newkey rsa:4096 -keyout ${DIR_BASE}/root-ca/key/ca.key -days 365 -extensions v3_ca"
+#    call_openssl "req -new -x509 -out ${DIR_BASE}/root-ca/crt/ca.crt -newkey rsa:4096 -keyout ${DIR_BASE}/root-ca/key/ca.key -days 365 -extensions v3_ca"
+#    call_openssl "req -new -x509 -out ${DIR_BASE}/root-ca/crt/ca.crt -newkey rsa:4096 -keyout ${DIR_BASE}/root-ca/key/ca.key -days 365 -extensions v3_ca"
+    notice "Certificate index and serial files initialised."
+    return 0
+  else
+    error "Base directory ${FCCYN}${DIR_BASE}${CLR} does not exist."
+    return 1
+  fi
+}
+
+function delete_ca {
+  debug "Deleting CA..."
+
+  check_dirs
+  RC=$?
+  if [ ${RC} -eq 1 ]; then
+    error "No certificate directories found."
+    return 1
+  elif [ ${RC} -eq 255 ]; then
+    error "Internal error checking for directories."
+    return 255
+  else
+    debug "Certificate directories found."
+  fi
+
+  if [ ! -d ${DIR_BASE} ]; then
+    error "${FCCYN}${DIR_BASE} does not exist."
+    return 1
+  else
+    OUTPUT=`rm -rf ${DIR_BASE}/{root,site,user}-ca 2>&1`
+    RC=$?
+    if [ ${RC} -ne 0 ]; then
+      error "Error removing certificate directories: Error code ${FCCYN}${RC}${CLR} (${FCCYN}${OUTPUT}${CLR})."
+      return 255
+    fi
+    notice "Certificate directories removed."
+  fi
+}
+
+# Check for directories
+function check_dirs {
+  for CRT_TYPE in root ${CERT_TYPES}; do
+    debug "Checking ${FCCYN}${CRT_TYPE}${CLR} directories..."
+    for CA_DIR in ${CA_DIRS}; do
+      if [ ! -d ${DIR_BASE}/${CRT_TYPE}-ca/${CA_DIR} ]; then
+        warning "Missing directory ${FCCYN}${DIR_BASE}/${CRT_TYPE}-ca/${CA_DIR}${CLR}"
+        return 1
+      else
+        debug "${FCCYN}${DIR_BASE}/${CRT_TYPE}-ca/${CA_DIR}${CLR} exists."
+      fi
+    done
+  done
+  return 0
+}
+
+function create_openssl_cnf {
+
+  echo "
+dir                                         = .
+[ ca ]
+default_ca                                  = CA_default
+
+[ CA_default ]
+serial                                      = \$dir/serial
+database                                    = \$dir/certindex.txt
+new_certs_dir                               = \$dir/crt
+certificate                                 = \$dir/ca.pem
+private_key                                 = \$dir/key/ca.key
+default_days                                = 365
+default_md                                  = md5
+preserve                                    = no
+email_in_dn                                 = no
+nameopt                                     = default_ca
+certopt                                     = default_ca
+policy                                      = policy_match
+
+[ policy_match ]
+countryName                                 = match
+stateOrProvinceName                         = match
+organizationName                            = match
+organizationalUnitName                      = optional
+commonName                                  = supplied
+emailAddress                                = optional
+
+[ req ]
+default_bits                                = 4096
+default_keyfile                             = key.pem
+default_md                                  = md5
+string_mask                                 = nombstr
+distinguished_name                           = req_distinguished_name
+req_extensions                              = v3_req
+
+[ req_distinguished_name ]
+0.organizationName                          = Organisation name (company)
+organizationalUnitName                      = Organisational unit name (department, division, etc.)
+emailAddress                                = E-mail address
+emailAddress_max                            = 40
+localityName                                = Locality name (town/city)
+stateOrProvinceName                         = County, state, province
+countryName                                 = 2 letter country code
+countryName_min                             = 2
+countryName_max                             = 2
+commonName                                  = Common name (hostname, IP address, or your name)
+commonName_max                              = 64
+
+0.organizationName_default                  = Northstar Networks
+localityName_default                        = Leeds
+stateOrProvinceName_default                 = West Yorkshire
+countryName_default                         = GB
+organizationalUnitName_default              = Network Operations
+emailAddress_default                        = support@nsnw.co.uk
+
+[ v3_ca ]
+basicConstraints                            = CA:TRUE
+subjectKeyIdentifier                        = hash
+authorityKeyIdentifier                      = keyid:always,issuer:always
+
+[ v3_req ]
+basicConstraints                            = CA:FALSE
+subjectKeyIdentifier                        = hash
+" > ${DIR_BASE}/root-ca/openssl.cnf
+  RC=$?
+  if [ ${RC} -ne 0 ]; then
+    error "Error creating ${FCCYN}${DIR_BASE}/root-ca/openssl.cnf${CLR}: Error code ${FCCYN}${RC}${CLR}."
+    return 255
+  fi
+  return 0
+}
+
+case ${CMD_TYPE} in
+  init)
+    init_ca
+    RC=$?
+    if [ ${RC} -eq 255 ]; then
+      error "Internal error while initialising CA."
+      exit 255
+    elif [ ${RC} -eq 1 ]; then
+      error "CA is already initialised."
+      exit 1
+    else
+      notice "CA initialised."
+      exit 0
+    fi
+    ;;
+  delete)
+    delete_ca
+    RC=$?
+    if [ ${RC} -eq 255 ]; then
+      error "Internal error while deleting CA."
+      exit 255
+    elif [ ${RC} -eq 1 ]; then
+      error "CA not found."
+      exit 1
+    else
+      notice "CA deleted."
+      exit 0
+    fi
+    ;;
+  request)
+    check_dirs
+    if [ $? -eq 1 ]; then
+      error "CA directories not found. Perhaps you need to initialise them with ${FCGRN}-i${CLR}?"
+      exit 1
+    fi
+    debug "Changing directory to ${FCCYN}${DIR_BASE}/${CERT_TYPE}-ca${CLR}..."
+    cd ${DIR_BASE}/${CERT_TYPE}-ca
+    notice "Generating certificate signing request for ${FCYLW}${COMMON_NAME}${CLR}..."
+    call_openssl "req -newkey rsa:4096 -keyout key/${COMMON_NAME}.key -out csr/${COMMON_NAME}.csr -days 365 -nodes"
+    RC=$?
+    if [ ${RC} -ne 0 ]; then
+      error "Error creating certificate signing request for ${FCYLW}${COMMON_NAME}${CLR}: Error code ${FCCYN}${RC}${CLR}."
+      exit ${RC}
+    else
+      notice "Certificate signing request for ${FCYLW}${COMMON_NAME}${CLR} successful."
+      notice "CSR is ${FCCYN}${DIR_BASE}/${CERT_TYPE}-ca/csr/${COMMON_NAME}.csr${CLR}."
+      notice "Key is ${FCCYN}${DIR_BASE}/${CERT_TYPE}-ca/key/${COMMON_NAME}.key${CLR}."
+      ls -la ${DIR_BASE}/${CERT_TYPE}-ca/csr/${COMMON_NAME}.csr
+      ls -la ${DIR_BASE}/${CERT_TYPE}-ca/key/${COMMON_NAME}.key
+    fi
+    ;;
+  sign)
+    check_dirs
+    if [ $? -eq 1 ]; then
+      error "CA directories not found. Perhaps you need to initialise them with ${FCGRN}-i${CLR}?"
+      exit 1
+    fi
+    debug "Changing directory to ${FCCYN}${DIR_BASE}/${CERT_TYPE}-ca${CLR}..."
+    cd ${DIR_BASE}/${CERT_TYPE}-ca
+    call_openssl "ca -days 365 -keyfile key/ca.key -cert crt/ca.crt -in csr/${COMMON_NAME}.csr -out crt/${COMMON_NAME}.crt"
+    ;;
+esac
