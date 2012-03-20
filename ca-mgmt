@@ -20,7 +20,55 @@ CA_FILES="certindex.txt serial"
 OPENSSL="/usr/bin/openssl"
 DIR_BASE="/home/andys/ca-mgmt"
 CONFIG="${DIR_BASE}/root-ca/openssl.cnf"
-source ./funcs.sh
+
+FCRED="[31;1m"
+FCGRN="[32;1m"
+FCYLW="[33;1m"
+FCBLU="[34;1m"
+FCPRP="[35;1m"
+FCCYN="[36;1m"
+CLR="[0m"
+
+function debug {
+  if [ $# -eq 1 ]; then
+    MSG=$1
+    LMSG=$1
+  else
+    MSG="(${FCPRP}$1${CLR}) $2"
+    LMSG="($1) $2"
+  fi
+  if [ ${DEBUG} -eq 1 ]; then
+    echo "[${FCBLU}debug  ${CLR}] $MSG" >&2
+  fi
+  log debug "$LMSG"
+}
+
+function error {
+  echo "[${FCRED}error  ${CLR}] $1" >&2
+  #log err "$1"
+  log error "$1"
+}
+
+function warning {
+  echo "[${FCYLW}warning${CLR}] $1" >&2
+  #log warn "$1"
+  log warn "$1"
+}
+
+function notice {
+  if [ ${NOTICE} -eq 1 ]; then
+    echo "[${FCGRN}notice ${CLR}] $1" >&2
+  fi
+  log notice "$1"
+}
+
+function log {
+  pri=$2
+  msg=$3
+  if [ ${LOG} -eq 1 ]; then
+    ${LOGGER} -t ${NAME} -p ${pri} "${msg}"
+  fi
+}
 
 function help {
   echo ${HEADER}
@@ -45,7 +93,6 @@ function call_openssl {
   if [ ! -z "$1" ]; then
     OPTIONS="$1"
     debug ${FUNCNAME} "openssl: called with ${FCCYN}${OPTIONS}${CLR}."
-    debug ${FUNCNAME} "openssl: ${OPENSSL} ${OPTIONS} -config ${CONFIG}"
     ${OPENSSL} ${OPTIONS} -config ${CONFIG}
     ERR=$?
 
@@ -56,7 +103,17 @@ function call_openssl {
 CERT_TYPE=""
 CMD_TYPE=""
 COMMON_NAME=""
-while getopts "xit:c:s:r:d" opt; do
+KEY_SIZE="4096"
+LENGTH="3650"
+
+S_ORGNAME="Example Organisation"
+S_LOCALITY="Somewhere"
+S_COUNTY="Someplace"
+S_COUNTRY="GB"
+S_ORGUNIT="Network Operations"
+S_EMAIL="support@example.com"
+
+while getopts "xit:c:s:r:d1:2:3:4:5:6:k:l:" opt; do
   case ${opt} in
     d)
       DEBUG=1
@@ -105,6 +162,38 @@ while getopts "xit:c:s:r:d" opt; do
       debug ${FUNCNAME} "Deleting CA."
       CMD_TYPE="delete"
       ;;
+    1)
+      debug "Organisation name set to ${FCCYN}${OPTARG}${CLR}."
+      S_ORGNAME=${OPTARG}
+      ;;
+    2)
+      debug "Locality set to ${FCCYN}${OPTARG}${CLR}."
+      S_LOCALITY=${OPTARG}
+      ;;
+    3)
+      debug "State/county/province set to ${FCCYN}${OPTARG}${CLR}."
+      S_COUNTY=${OPTARG}
+      ;;
+    4)
+      debug "Country set to ${FCCYN}${OPTARG}${CLR}."
+      S_COUNTRY=${OPTARG}
+      ;;
+    5)
+      debug "Organisational unit set to ${FCCYN}${OPTARG}${CLR}."
+      S_ORGUNIT=${OPTARG}
+      ;;
+    6)
+      debug "Email set to ${FCCYN}${OPTARG}${CLR}."
+      S_EMAIL=${OPTARG}
+      ;;
+    k)
+      debug "Key size set to ${FCCYN}${OPTARG}${CLR} (default is ${FCCYN}${KEY_SIZE}${CLR})."
+      KEY_SIZE=${OPTARG}
+      ;;
+    l)
+      debug "Length set to ${FCCYN}${OPTARG}${CLR} (default is ${FCCYN}${KEY_SIZE}${CLR})."
+      LENGTH=${OPTARG}
+      ;;
     *)
       error "Unknown command."
       exit 1
@@ -150,6 +239,7 @@ function init_ca {
       error "Error initialising ${FCCYN}serial${CLR}: Error code ${FCCYN}${RC}${CLR} (${FCCYN}${OUTPUT}${CLR})."
       return 255
     fi
+    notice "Certificate index and serial files initialised."
     debug "Creating ${FCCYN}openssl.cnf${CLR}..."
     create_openssl_cnf
     RC=$?
@@ -159,10 +249,63 @@ function init_ca {
     fi
     debug "${FCCYN}openssl.cnf${CLR} created."
 #    debug "Generating root certificate..."
-#    call_openssl "req -new -x509 -out ${DIR_BASE}/root-ca/crt/ca.crt -newkey rsa:4096 -keyout ${DIR_BASE}/root-ca/key/ca.key -days 365 -extensions v3_ca"
-#    call_openssl "req -new -x509 -out ${DIR_BASE}/root-ca/crt/ca.crt -newkey rsa:4096 -keyout ${DIR_BASE}/root-ca/key/ca.key -days 365 -extensions v3_ca"
-#    call_openssl "req -new -x509 -out ${DIR_BASE}/root-ca/crt/ca.crt -newkey rsa:4096 -keyout ${DIR_BASE}/root-ca/key/ca.key -days 365 -extensions v3_ca"
-    notice "Certificate index and serial files initialised."
+    debug "Generating new root certificate and key..."
+    notice "You'll now be prompted for organisation details and importantly"
+    notice "a passphrase for the ${FCRED}root${CLR} CA's key."
+    call_openssl "req -new -x509 -out ${DIR_BASE}/root-ca/crt/ca.crt -newkey rsa:${KEY_SIZE} -keyout ${DIR_BASE}/root-ca/key/ca.key -days ${LENGTH} -extensions v3_ca"
+    if [ $? -ne 0 ]; then
+      error "Error generating root certificate and key."
+      return 255
+    fi
+    debug "Root certificate and key generated."
+    debug "`ls -la ${DIR_BASE}/root-ca/crt/ca.crt`"
+    debug "`ls -la ${DIR_BASE}/root-ca/key/ca.key`"
+    debug "Generating ${FCCYN}site${CLR} certificate and key..."
+    notice "For the ${FCGRN}site${CLR} (as with the ${FCRED}root${CLR} CA),"
+    notice "you'll again be prompted for details and another passphrase."
+    call_openssl "req -new -out ${DIR_BASE}/site-ca/csr/ca.csr -newkey rsa:${KEY_SIZE} -keyout ${DIR_BASE}/site-ca/key/ca.key -days ${LENGTH} -extensions v3_ca"
+    if [ $? -ne 0 ]; then
+      error "Error generating ${FCCYN}site${CLR} certificate and key."
+      return 255
+    fi
+    debug "Site certificate and key generated."
+    debug `ls -la ${DIR_BASE}/site-ca/csr/ca.csr`
+    debug `ls -la ${DIR_BASE}/site-ca/key/ca.key`
+    debug "Signing ${FCCYN}site${CLR} certificate with root certificate..."
+    notice "Now you'll be prompted for the ${FCRED}root${CLR} CA key's passphrase for signing"
+    notice "the ${FCGRN}site${CLR} CA's certificate request."
+    cd ${DIR_BASE}/root-ca
+    call_openssl "ca -days ${LENGTH} -extensions v3_ca -keyfile key/ca.key -cert crt/ca.crt -out ${DIR_BASE}/site-ca/crt/ca.crt -in ${DIR_BASE}/site-ca/csr/ca.csr"
+    if [ $? -ne 0 ]; then
+      error "Error signing ${FCCYN}site${CLR} certificate and key."
+      return 255
+    fi
+    debug "Site certificate signed."
+    debug "`ls -la ${DIR_BASE}/site-ca/crt/ca.crt`"
+
+    debug "Generating ${FCCYN}user${CLR} certificate and key..."
+    notice "For the ${FCGRN}user${CLR} (as with the ${FCRED}root${CLR} CA),"
+    notice "you'll again be prompted for details and another passphrase."
+    call_openssl "req -new -out ${DIR_BASE}/user-ca/csr/ca.csr -newkey rsa:${KEY_SIZE} -keyout ${DIR_BASE}/user-ca/key/ca.key -days ${LENGTH} -extensions v3_ca"
+    if [ $? -ne 0 ]; then
+      error "Error generating ${FCCYN}user${CLR} certificate and key."
+      return 255
+    fi
+    debug "User certificate and key generated."
+    debug "`ls -la ${DIR_BASE}/user-ca/csr/ca.csr`"
+    debug "`ls -la ${DIR_BASE}/user-ca/key/ca.key`"
+    debug "Signing ${FCCYN}user${CLR} certificate with root certificate..."
+    notice "Now you'll be prompted for the ${FCRED}root${CLR} CA key's passphrase for signing"
+    notice "the ${FCGRN}site${CLR} CA's certificate request."
+    cd ${DIR_BASE}/root-ca
+    call_openssl "ca -days ${LENGTH} -extensions v3_ca -keyfile key/ca.key -cert crt/ca.crt -out ${DIR_BASE}/user-ca/crt/ca.crt -in ${DIR_BASE}/user-ca/csr/ca.csr"
+    if [ $? -ne 0 ]; then
+      error "Error signing ${FCCYN}user${CLR} certificate and key."
+      return 255
+    fi
+    debug "User certificate signed."
+    debug "`ls -la ${DIR_BASE}/user-ca/crt/ca.crt`"
+    notice "CA certificate and key generation complete."
     return 0
   else
     error "Base directory ${FCCYN}${DIR_BASE}${CLR} does not exist."
@@ -217,6 +360,15 @@ function check_dirs {
 
 function create_openssl_cnf {
 
+  notice "The following details will be used for generating ${FCGRN}openssl.cnf${CLR}:-"
+  notice "Organisation: ${FCGRN}$S_ORGNAME${CLR}"
+  notice "Unit        : ${FCGRN}$S_ORGUNIT${CLR}"
+  notice "Email       : ${FCGRN}$S_EMAIL${CLR}"
+  notice "Town/city   : ${FCGRN}$S_LOCALITY${CLR}"
+  notice "County      : ${FCGRN}$S_COUNTY${CLR}"
+  notice "Country     : ${FCGRN}$S_COUNTRY${CLR}"
+  notice "To change these, please use the ${FCGRN}-1${CLR}, ${FCGRN}-2${CLR}, ${FCGRN}-3${CLR}, ${FCGRN}-4${CLR}, ${FCGRN}-5${CLR} and ${FCGRN}-6${CLR} options."
+
   echo "
 dir                                         = .
 [ ca ]
@@ -224,11 +376,14 @@ default_ca                                  = CA_default
 
 [ CA_default ]
 serial                                      = \$dir/serial
-database                                    = \$dir/certindex.txt
+database                                    = \$dir/index.txt
 new_certs_dir                               = \$dir/crt
-certificate                                 = \$dir/ca.pem
+certificate                                 = \$dir/crt/ca.crt
 private_key                                 = \$dir/key/ca.key
-default_days                                = 365
+crl_dir                                     = \$dir/crl
+crl                                         = \$dir/crl/crl.pem
+default_crl_days                            = 30
+default_days                                = ${LENGTH}
 default_md                                  = md5
 preserve                                    = no
 email_in_dn                                 = no
@@ -245,7 +400,7 @@ commonName                                  = supplied
 emailAddress                                = optional
 
 [ req ]
-default_bits                                = 4096
+default_bits                                = ${KEY_SIZE}
 default_keyfile                             = key.pem
 default_md                                  = md5
 string_mask                                 = nombstr
@@ -265,12 +420,12 @@ countryName_max                             = 2
 commonName                                  = Common name (hostname, IP address, or your name)
 commonName_max                              = 64
 
-0.organizationName_default                  = Northstar Networks
-localityName_default                        = Leeds
-stateOrProvinceName_default                 = West Yorkshire
-countryName_default                         = GB
-organizationalUnitName_default              = Network Operations
-emailAddress_default                        = support@nsnw.co.uk
+0.organizationName_default                  = $S_ORGNAME
+localityName_default                        = $S_LOCALITY
+stateOrProvinceName_default                 = $S_COUNTY
+countryName_default                         = $S_COUNTRY
+organizationalUnitName_default              = $S_ORGUNIT
+emailAddress_default                        = $S_EMAIL
 
 [ v3_ca ]
 basicConstraints                            = CA:TRUE
@@ -324,10 +479,14 @@ case ${CMD_TYPE} in
       error "CA directories not found. Perhaps you need to initialise them with ${FCGRN}-i${CLR}?"
       exit 1
     fi
+    if [ -z "${CERT_TYPE}" ]; then
+      error "Certificate type not set (use ${FCGRN}-t${CLR})"
+      exit 1
+    fi
     debug "Changing directory to ${FCCYN}${DIR_BASE}/${CERT_TYPE}-ca${CLR}..."
     cd ${DIR_BASE}/${CERT_TYPE}-ca
     notice "Generating certificate signing request for ${FCYLW}${COMMON_NAME}${CLR}..."
-    call_openssl "req -newkey rsa:4096 -keyout key/${COMMON_NAME}.key -out csr/${COMMON_NAME}.csr -days 365 -nodes"
+    call_openssl "req -newkey rsa:${KEY_SIZE} -keyout key/${COMMON_NAME}.key -out csr/${COMMON_NAME}.csr -days ${LENGTH} -nodes"
     RC=$?
     if [ ${RC} -ne 0 ]; then
       error "Error creating certificate signing request for ${FCYLW}${COMMON_NAME}${CLR}: Error code ${FCCYN}${RC}${CLR}."
@@ -348,6 +507,6 @@ case ${CMD_TYPE} in
     fi
     debug "Changing directory to ${FCCYN}${DIR_BASE}/${CERT_TYPE}-ca${CLR}..."
     cd ${DIR_BASE}/${CERT_TYPE}-ca
-    call_openssl "ca -days 365 -keyfile key/ca.key -cert crt/ca.crt -in csr/${COMMON_NAME}.csr -out crt/${COMMON_NAME}.crt"
+    call_openssl "ca -days ${LENGTH} -keyfile key/ca.key -cert crt/ca.crt -in csr/${COMMON_NAME}.csr -out crt/${COMMON_NAME}.crt"
     ;;
 esac
