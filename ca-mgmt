@@ -16,7 +16,7 @@ DEBUG=0
 NOTICE=1
 CERT_TYPES="site user"
 CA_DIRS="key crt csr"
-CA_FILES="certindex.txt serial"
+CA_FILES="index.txt serial"
 OPENSSL="/usr/bin/openssl"
 DIR_BASE="/home/andys/ca-mgmt"
 CONFIG="${DIR_BASE}/root-ca/openssl.cnf"
@@ -70,22 +70,32 @@ function log {
   fi
 }
 
-function help {
+function show_help {
   echo ${HEADER}
   echo "Manage SSL CA for users and sites."
   echo ""
   echo "COMMANDS"
+  echo -e "\t-i\t\tInitialise CA"
+  echo -e "\t-d\t\tDelete CA [${FCRED}DANGEROUS${CLR}]"
   echo -e "\t-c <cn>\t\tCreate certificate signing request for <cn>"
   echo -e "\t-s <cn>\t\tSign certificate request for <cn>"
   echo ""
   echo "OPTIONS"
-  echo -e "\t-t <type>\tCertificate type (site, user) [MANDATORY]"
+  echo -e "\t-t <type>\tCertificate type (site, user) [MANDATORY for -c and -s]"
+  echo -e "\t-k <size>\tKey size (default: 4096)"
+  echo -e "\t-d <days>\tCertificate validity (default: 3650)"
   echo ""
   echo -e "\t-d\t\tTurn on debugging"
+  echo -e "\t-1\t\tSet organisation name"
+  echo -e "\t-2\t\tSet town/city"
+  echo -e "\t-3\t\tSet county/state/province"
+  echo -e "\t-4\t\tSet country"
+  echo -e "\t-5\t\tSet organisational unit"
+  echo -e "\t-6\t\tSet e-mail"
 }
 
 if [ -z "$*" ]; then
-  help
+  show_help
   exit 1
 fi
 
@@ -113,7 +123,7 @@ S_COUNTRY="GB"
 S_ORGUNIT="Network Operations"
 S_EMAIL="support@example.com"
 
-while getopts "xit:c:s:r:d1:2:3:4:5:6:k:l:" opt; do
+while getopts "xit:c:s:r:d1:2:3:4:5:6:k:l:h" opt; do
   case ${opt} in
     d)
       DEBUG=1
@@ -194,6 +204,10 @@ while getopts "xit:c:s:r:d1:2:3:4:5:6:k:l:" opt; do
       debug "Length set to ${FCCYN}${OPTARG}${CLR} (default is ${FCCYN}${KEY_SIZE}${CLR})."
       LENGTH=${OPTARG}
       ;;
+    h)
+      show_help
+      exit 0
+      ;;
     *)
       error "Unknown command."
       exit 1
@@ -219,7 +233,7 @@ function init_ca {
   if [ -d ${DIR_BASE} ]; then
     debug "${FCCYN}${DIR_BASE} exists."
     debug "Creating CA directories..."
-    OUTPUT=`mkdir -p ${DIR_BASE}/{root,site,user}-ca/{crt,key,csr} 2>&1`
+    OUTPUT=`mkdir -p ${DIR_BASE}/{root,site,user}-ca/{crt,key,csr,crl} 2>&1`
     RC=$?
     if [ ${RC} -ne 0 ]; then
       error "Error initialising CA directories: Error code ${FCCYN}${RC}${CLR} (${FCCYN}${OUTPUT}${CLR})."
@@ -227,10 +241,10 @@ function init_ca {
     fi
     debug "CA directories initialised."
     debug "Creating certificate index and serial files..."
-    OUTPUT=`touch ${DIR_BASE}/{root,site,user}-ca/certindex.txt 2>&1`
+    OUTPUT=`touch ${DIR_BASE}/{root,site,user}-ca/index.txt 2>&1`
     RC=$?
     if [ ${RC} -ne 0 ]; then
-      error "Error initialising ${FCCYN}certindex.txt${CLR}: Error code ${FCCYN}${RC}${CLR} (${FCCYN}${OUTPUT}${CLR})."
+      error "Error initialising ${FCCYN}index.txt${CLR}: Error code ${FCCYN}${RC}${CLR} (${FCCYN}${OUTPUT}${CLR})."
       exit 255
     fi
     OUTPUT=`( for i in ${DIR_BASE}/{root,site,user}-ca/; do echo echo '100001' > $i/serial; done ) 2>&1`
@@ -328,17 +342,23 @@ function delete_ca {
     debug "Certificate directories found."
   fi
 
-  if [ ! -d ${DIR_BASE} ]; then
-    error "${FCCYN}${DIR_BASE} does not exist."
-    return 1
+  warning "THIS WILL DELETE THE ROOT, SITE AND USER CA CERTIFICATES AND KEYS."
+  warning "YOU WILL NO LONGER BE ABLE TO SIGN OR VERIFY CERTIFICATES."
+  warning "To accept this, please type 'ok':-"
+  echo -n "> "
+  read OK
+  if [[ "${OK}" != "ok" ]]; then
+    notice "Aborted CA deletion."
+    exit 0
   else
     OUTPUT=`rm -rf ${DIR_BASE}/{root,site,user}-ca 2>&1`
     RC=$?
-    if [ ${RC} -ne 0 ]; then
+    if  [ ${RC} -ne 0 ]; then
       error "Error removing certificate directories: Error code ${FCCYN}${RC}${CLR} (${FCCYN}${OUTPUT}${CLR})."
       return 255
     fi
     notice "Certificate directories removed."
+    exit 0
   fi
 }
 
