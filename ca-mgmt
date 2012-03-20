@@ -76,7 +76,7 @@ function show_help {
   echo ""
   echo "COMMANDS"
   echo -e "\t-i\t\tInitialise CA"
-  echo -e "\t-d\t\tDelete CA [${FCRED}DANGEROUS${CLR}]"
+  echo -e "\t-x\t\tDelete CA [${FCRED}DANGEROUS${CLR}]"
   echo -e "\t-c <cn>\t\tCreate certificate signing request for <cn>"
   echo -e "\t-s <cn>\t\tSign certificate request for <cn>"
   echo ""
@@ -84,8 +84,10 @@ function show_help {
   echo -e "\t-t <type>\tCertificate type (site, user) [MANDATORY for -c and -s]"
   echo -e "\t-k <size>\tKey size (default: 4096)"
   echo -e "\t-d <days>\tCertificate validity (default: 3650)"
-  echo ""
   echo -e "\t-d\t\tTurn on debugging"
+  echo ""
+  echo "INITIALISATION OPTIONS"
+  echo -e "\t-f <file>\tUse existing file <file> for openssl.cnf"
   echo -e "\t-1\t\tSet organisation name"
   echo -e "\t-2\t\tSet town/city"
   echo -e "\t-3\t\tSet county/state/province"
@@ -115,6 +117,7 @@ CMD_TYPE=""
 COMMON_NAME=""
 KEY_SIZE="4096"
 LENGTH="3650"
+IMPORTED_CONFIG_FILE=""
 
 S_ORGNAME="Example Organisation"
 S_LOCALITY="Somewhere"
@@ -123,7 +126,7 @@ S_COUNTRY="GB"
 S_ORGUNIT="Network Operations"
 S_EMAIL="support@example.com"
 
-while getopts "xit:c:s:r:d1:2:3:4:5:6:k:l:h" opt; do
+while getopts "g:xit:c:s:r:d1:2:3:4:5:6:k:l:hf:" opt; do
   case ${opt} in
     d)
       DEBUG=1
@@ -163,6 +166,16 @@ while getopts "xit:c:s:r:d1:2:3:4:5:6:k:l:h" opt; do
         COMMON_NAME=${OPTARG}
         CMD_TYPE="sign"
       fi
+      ;;
+    g)
+      debug ${FUNCNAME} "Generating roots."
+      if [[ "${OPTARG}" = "yes" ]]; then
+        CMD_TYPE="generate_roots"
+      fi
+      ;;
+    f)
+      debug "Importing config file (${FCCYN}${OPTARG}${CLR})."
+      IMPORTED_CONFIG_FILE=${OPTARG}
       ;;
     i)
       debug ${FUNCNAME} "Initialising CA."
@@ -262,7 +275,19 @@ function init_ca {
       return 255
     fi
     debug "${FCCYN}openssl.cnf${CLR} created."
-#    debug "Generating root certificate..."
+    generate_roots
+    RC=$?
+    if [ ${RC} -ne 0 ]; then
+      error "Error generating CA root certificates and keys."
+      exit ${RC}
+    fi
+  else
+    error "Base directory ${FCCYN}${DIR_BASE}${CLR} does not exist."
+    return 1
+  fi
+}
+
+function generate_roots {
     debug "Generating new root certificate and key..."
     notice "You'll now be prompted for organisation details and importantly"
     notice "a passphrase for the ${FCRED}root${CLR} CA's key."
@@ -321,10 +346,6 @@ function init_ca {
     debug "`ls -la ${DIR_BASE}/user-ca/crt/ca.crt`"
     notice "CA certificate and key generation complete."
     return 0
-  else
-    error "Base directory ${FCCYN}${DIR_BASE}${CLR} does not exist."
-    return 1
-  fi
 }
 
 function delete_ca {
@@ -380,16 +401,21 @@ function check_dirs {
 
 function create_openssl_cnf {
 
-  notice "The following details will be used for generating ${FCGRN}openssl.cnf${CLR}:-"
-  notice "Organisation: ${FCGRN}$S_ORGNAME${CLR}"
-  notice "Unit        : ${FCGRN}$S_ORGUNIT${CLR}"
-  notice "Email       : ${FCGRN}$S_EMAIL${CLR}"
-  notice "Town/city   : ${FCGRN}$S_LOCALITY${CLR}"
-  notice "County      : ${FCGRN}$S_COUNTY${CLR}"
-  notice "Country     : ${FCGRN}$S_COUNTRY${CLR}"
-  notice "To change these, please use the ${FCGRN}-1${CLR}, ${FCGRN}-2${CLR}, ${FCGRN}-3${CLR}, ${FCGRN}-4${CLR}, ${FCGRN}-5${CLR} and ${FCGRN}-6${CLR} options."
+  if [ ! -z "${IMPORTED_CONFIG_FILE}" ]; then
+    notice "Using config file ${IMPORTED_CONFIG_FILE} for openssl.cnf."
+    cp ${IMPORTED_CONFIG_FILE} ${DIR_BASE}/root-ca/openssl.cnf
+  else
+    
+    notice "The following details will be used for generating ${FCGRN}openssl.cnf${CLR}:-"
+    notice "Organisation: ${FCGRN}$S_ORGNAME${CLR}"
+    notice "Unit        : ${FCGRN}$S_ORGUNIT${CLR}"
+    notice "Email       : ${FCGRN}$S_EMAIL${CLR}"
+    notice "Town/city   : ${FCGRN}$S_LOCALITY${CLR}"
+    notice "County      : ${FCGRN}$S_COUNTY${CLR}"
+    notice "Country     : ${FCGRN}$S_COUNTRY${CLR}"
+    notice "To change these, please use the ${FCGRN}-1${CLR}, ${FCGRN}-2${CLR}, ${FCGRN}-3${CLR}, ${FCGRN}-4${CLR}, ${FCGRN}-5${CLR} and ${FCGRN}-6${CLR} options."
 
-  echo "
+    echo "
 dir                                         = .
 [ ca ]
 default_ca                                  = CA_default
@@ -452,10 +478,21 @@ basicConstraints                            = CA:TRUE
 subjectKeyIdentifier                        = hash
 authorityKeyIdentifier                      = keyid:always,issuer:always
 
+[ v3_site_ca ]
+basicConstraints                            = CA:TRUE
+subjectKeyIdentifier                        = hash
+authorityKeyIdentifier                      = keyid:always,issuer:always
+
+[ v3_user_ca ]
+basicConstraints                            = CA:TRUE
+subjectKeyIdentifier                        = hash
+authorityKeyIdentifier                      = keyid:always,issuer:always
+
 [ v3_req ]
 basicConstraints                            = CA:FALSE
 subjectKeyIdentifier                        = hash
-" > ${DIR_BASE}/root-ca/openssl.cnf
+    " > ${DIR_BASE}/root-ca/openssl.cnf
+  fi
   RC=$?
   if [ ${RC} -ne 0 ]; then
     error "Error creating ${FCCYN}${DIR_BASE}/root-ca/openssl.cnf${CLR}: Error code ${FCCYN}${RC}${CLR}."
@@ -527,6 +564,9 @@ case ${CMD_TYPE} in
     fi
     debug "Changing directory to ${FCCYN}${DIR_BASE}/${CERT_TYPE}-ca${CLR}..."
     cd ${DIR_BASE}/${CERT_TYPE}-ca
-    call_openssl "ca -days ${LENGTH} -keyfile key/ca.key -cert crt/ca.crt -in csr/${COMMON_NAME}.csr -out crt/${COMMON_NAME}.crt"
+    call_openssl "ca -extensions v3_${CERT_TYPE}_ca -days ${LENGTH} -keyfile key/ca.key -cert crt/ca.crt -in csr/${COMMON_NAME}.csr -out crt/${COMMON_NAME}.crt"
+    ;;
+  generate_roots)
+    generate_roots
     ;;
 esac
