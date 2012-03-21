@@ -2,14 +2,21 @@
 
 #-------------------------------------------------------------------------------
 # ca-mgmt
-# (c) 2012 Andy Smith / northstar networks
-# Manage CAs
+# A simple CA management tool
+#
+# (c) 2012 Andy Smith <andy@m0vkg.org.uk> / northstar networks
+# https://github.com/m0vkg/ca-mgmt
+# http://www.nsnw.co.uk/
 #-------------------------------------------------------------------------------
-# Based on the guide by Kees Leune at http://www.leune.org/blog/kees/pages/ca.html
+# Inspired by Kees Leune's guide at http://www.leune.org/blog/kees/pages/ca.html
+#-------------------------------------------------------------------------------
+# ca-mgmt is released under the terms of the BSD 2-Clause license. A copy should
+# be located in the same directory as this script, named LICENSE. Alternatively,
+# a copy can be found at http://www.opensource.org/licenses/BSD-2-Clause.
 #-------------------------------------------------------------------------------
 
 NAME="ca-mgmt"
-VERSION="0.1"
+VERSION="0.3"
 HEADER="${NAME} ${VERSION} (c) 2012 Andy Smith / northstar networks"
 LOG=0
 DEBUG=0
@@ -83,7 +90,7 @@ function show_help {
   echo "OPTIONS"
   echo -e "\t-t <type>\tCertificate type (site, user) [MANDATORY for -c and -s]"
   echo -e "\t-k <size>\tKey size (default: 4096)"
-  echo -e "\t-d <days>\tCertificate validity (default: 3650)"
+  echo -e "\t-l <days>\tCertificate validity (default: 3650)"
   echo -e "\t-d\t\tTurn on debugging"
   echo ""
   echo "INITIALISATION OPTIONS"
