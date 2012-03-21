@@ -1,0 +1,87 @@
+ca-mgmt
+A simple CA management tool
+(c) 2012 Andy Smith <andy@m0vkg.org.uk> / Northstar Networks
+https://github.com/m0vkg/ca-mgmt
+http://www.nsnw.co.uk/
+
+INTRODUCTION
+
+ca-mgmt is a simple CA management tool, written in bash, and inspired
+by Kees Leune's "Setting up your own certificate authority" guide
+at http://www.leune.org/blog/kees/pages/ca.html.
+
+ca-mgmt will set up a root CA, then set up two further CAs for sites
+and users, and finally sign the latter two with the former.
+
+QUICK START
+
+$ ./ca-mgmt -i
+
+This will create the necessary directories and files needed for the CAs.
+An openssl.cnf config file will be created with some default values
+under the 'root-ca' directory. Follow the prompts, and the CA
+certificates and keys will be generated.
+
+COMMANDS
+
+  -i          Initialise the CAs.
+  -x          Destroy the CAs.
+  -c <name>   Create a certificate signing request and key for <name>.
+  -s <name>   Sign a certificate signing request for <name>.
+
+OPTIONS
+
+  -t <type>   Specify the CA type ('site' or 'user' by default).
+              This option is required for -c and -s.
+  -k <size>   Specify the size of the key in bits. If given along with
+              -i, this will be the size of the key generated for the CAs.
+              Defaults to 4096.
+  -l <days>   Specify the validity (in days) of certificate signing
+              requests and certificates. If given along with -i, this
+              will be the length of the CA certificates.
+              Defaults to 3650 (10 years).
+  -d          Turn on debugging.
+
+  Initialisation-specific options
+
+  -f          Specify an existing openssl.cnf file to use. This will be
+              copied in instead of generating a new one.
+  -1          Specify the organisation name.
+  -2          Specify the locality (towm/city).
+  -3          Specify the county/state/province.
+  -4          Specify the two-letter country code.
+  -5          Specify the organisational unit.
+  -6          Specify the e-mail address.
+
+  (options -1 through -6 will be used to generate openssl.cnf)
+
+TODO
+
+* Certificate revocation. The directories exist for this, but hasn't been
+  implemented fully yet.
+* Management of existing certificates.
+
+CONTACT
+
+Andy Smith <andy@m0vkg.org.uk>
+
+DEVELOPMENT
+
+The latest copy of ca-mgmt can always be downloaded from Github at:-
+
+  https://github.com/m0vkg/ca-mgmt
+
+Any bug reports or feature requests can be made at:-
+
+  https://github.com/m0vkg/ca-mgmt/issues
+
+LICENSE
+
+ca-mgmt is released under the terms of the BSD 2-Clause License. A copy of
+this license should be included in any distribution of ca-mgmt, within the
+file 'LICENSE'.
+
+In case it is not, you can find a copy of the license at:-
+
+  http://www.opensource.org/licenses/bsd-license.php
+
